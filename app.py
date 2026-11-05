@@ -65,6 +65,17 @@ def scene_images(key: str, sample_names: list[str], uploader_types: list[str]) -
     return []
 
 
+def source_preview(md_text: str, key: str = "split") -> None:
+    """左右分栏：左=Markdown 源码（可编辑），右=实时渲染预览。"""
+    col_left, col_right = st.columns([1, 1])
+    with col_left:
+        st.markdown("**📝 Markdown 源码**")
+        edited = st.text_area("源码", value=md_text, height=480, key=f"{key}_src")
+    with col_right:
+        st.markdown("**👀 实时预览**")
+        st.markdown(edited)
+
+
 def main() -> None:
     st.title("Xiaomi OCR Demo — 表格 · 公式 · 发票 · 问答")
     st.caption("基于开源模型 Xiaomi-OCR-0（0.8B）本地推理，图片不上传。")
@@ -92,8 +103,7 @@ def main() -> None:
                     with st.spinner("识别中（CPU 约几十秒）..."):
                         md_all.append(service.parse(img))
                 md_text = "\n\n".join(md_all)
-                st.markdown("**识别结果（Markdown / HTML 表格）**")
-                st.code(md_text, language="markdown")
+                source_preview(md_text, key="t1")
                 xlsx = markdown_tables_to_excel(md_text)
                 if xlsx:
                     st.download_button("下载 Excel (.xlsx)", xlsx, file_name="tables.xlsx", mime=XLSX_MIME)
@@ -111,7 +121,7 @@ def main() -> None:
                     with st.spinner("转换中（CPU 约几十秒）..."):
                         md_all.append(service.parse(img))
                 md_text = "\n\n---\n\n".join(md_all)
-                st.markdown(md_text)
+                source_preview(md_text, key="t2")
                 st.download_button("下载 Markdown (.md)", md_text.encode("utf-8"),
                                    file_name="document.md", mime="text/markdown")
 
