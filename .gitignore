@@ -37,5 +37,8 @@ out_*.md
 bench_result.txt
 bench_xpu.log
 
+# ===== 本地工具数据 =====
+.codegraph/
+
 # ===== Jupyter =====
 .ipynb_checkpoints/
