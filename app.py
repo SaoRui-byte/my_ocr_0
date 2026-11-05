@@ -2,6 +2,7 @@
 import streamlit as st
 from PIL import Image
 
+from core.download import custom_download
 from core.exporters import extract_json, kie_to_excel, markdown_tables_to_excel
 from core.ocr_service import OCRService
 from core.preprocess import pdf_to_images, prepare_image
@@ -128,29 +129,6 @@ def page_header(title: str, subtitle: str, emoji: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 辅助：带自定义文件名的下载
-# ---------------------------------------------------------------------------
-
-def custom_download(content: bytes, default_name: str, mime: str, key: str) -> None:
-    """并排显示文件名输入框和下载按钮（标签外置以保证同行对齐）。"""
-    st.markdown("📝 文件名")
-    col_name, col_btn = st.columns([3, 2])
-    with col_name:
-        base = st.text_input("文件名", default_name, key=f"{key}_name", label_visibility="collapsed").strip() or default_name
-    with col_btn:
-        if not base.lower().endswith((".md", ".txt", ".xlsx", ".json")):
-            base += "." + mime.split("/")[-1].replace("openxmlformats-officedocument.", "").replace("spreadsheetml.", "")
-        st.download_button(
-            "⬇️ 下载",
-            content,
-            file_name=base,
-            mime=mime,
-            type="primary",
-            key=f"{key}_dl",
-        )
-
-
-# ---------------------------------------------------------------------------
 # 各场景渲染
 # ---------------------------------------------------------------------------
 
@@ -168,7 +146,7 @@ def render_doc_to_md(service: OCRService) -> None:
 
     if "doc_result" in st.session_state:
         edited = source_preview(st.session_state["doc_result"], key="doc")
-        custom_download(edited.encode("utf-8"), "document.md", "text/markdown", key="doc")
+        custom_download(edited.encode("utf-8"), "document.md", "text/markdown")
 
 
 def render_table_to_xlsx(service: OCRService) -> None:
@@ -187,7 +165,7 @@ def render_table_to_xlsx(service: OCRService) -> None:
         edited = source_preview(st.session_state["table_result"], key="table")
         xlsx = markdown_tables_to_excel(edited)
         if xlsx:
-            custom_download(xlsx, "tables.xlsx", XLSX_MIME, key="table")
+            custom_download(xlsx, "tables.xlsx", XLSX_MIME)
         else:
             st.warning("未检测到表格内容。")
 
@@ -218,7 +196,7 @@ def render_kie(service: OCRService) -> None:
         records = st.session_state["kie_result"]
         st.markdown("#### 📋 抽取结果")
         st.json(records)
-        custom_download(kie_to_excel(records), "invoices.xlsx", XLSX_MIME, key="kie")
+        custom_download(kie_to_excel(records), "invoices.xlsx", XLSX_MIME)
 
 
 def render_vqa(service: OCRService) -> None:
@@ -240,7 +218,7 @@ def render_vqa(service: OCRService) -> None:
         for i, text in enumerate(st.session_state.get("ocr_result", [])):
             st.markdown(f"#### 📌 第 {i + 1} 张")
             st.write(text)
-            custom_download(text.encode("utf-8"), f"ocr_{i + 1}.md", "text/markdown", key=f"ocr_{i}")
+            custom_download(text.encode("utf-8"), f"ocr_{i + 1}.md", "text/markdown")
     else:
         question = st.text_input("💬 你的问题", "这张图里金额是多少？")
         images = upload_zone("vqa", accept_pdf=False)
@@ -254,7 +232,7 @@ def render_vqa(service: OCRService) -> None:
         for i, answer in enumerate(st.session_state.get("vqa_result", [])):
             st.markdown(f"#### 📌 第 {i + 1} 张回答")
             st.write(answer)
-            custom_download(answer.encode("utf-8"), f"answer_{i + 1}.txt", "text/plain", key=f"vqa_{i}")
+            custom_download(answer.encode("utf-8"), f"answer_{i + 1}.txt", "text/plain")
 
 
 # key → 渲染函数的映射
