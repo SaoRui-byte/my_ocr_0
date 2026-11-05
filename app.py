@@ -1,6 +1,4 @@
 """my_ocr_0 — 基于 Xiaomi-OCR-0 的本地 OCR 工具（表格转 Excel / 文档转 Markdown / 发票整理 / 识字问答）。"""
-from pathlib import Path
-
 import streamlit as st
 from PIL import Image
 
@@ -10,14 +8,8 @@ from core.preprocess import pdf_to_images, prepare_image
 
 st.set_page_config(page_title="my_ocr_0 — 本地 OCR", page_icon="📄", layout="wide")
 
-SAMPLES_DIR = Path(__file__).resolve().parent / "samples"
 SUPPORTED_IMAGE_TYPES = ["png", "jpg", "jpeg", "webp", "bmp"]
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-TAB1_SAMPLES = ["showcase_dense.png", "sample_document.png"]
-TAB2_SAMPLES = ["sample_document.png", "showcase_formula.png", "showcase_dense.png"]
-TAB3_SAMPLES = ["showcase_invoice.png", "sample_kie.png"]
-TAB4_SAMPLES = ["sample_vqa.png", "showcase_whiteboard.png", "showcase_calligraphy.png"]
 
 
 @st.cache_resource
@@ -62,17 +54,11 @@ def load_uploaded_images(uploaded_files) -> list[Image.Image]:
     return images
 
 
-def scene_images(key: str, sample_names: list[str], uploader_types: list[str]) -> list[Image.Image]:
-    """统一取图入口：示例图下拉 或 文件上传，二选一。"""
-    col_sample, col_upload = st.columns([1, 2])
-    with col_sample:
-        choice = st.selectbox("🎯 示例图（免上传体验）", ["不使用"] + sample_names, key=f"{key}_sample")
-    with col_upload:
-        files = st.file_uploader("📁 上传图片", type=uploader_types, key=f"{key}_up", accept_multiple_files=True)
+def scene_images(key: str, uploader_types: list[str]) -> list[Image.Image]:
+    """统一取图入口：文件上传（支持多图 / PDF）。"""
+    files = st.file_uploader("📁 上传图片或 PDF", type=uploader_types, key=f"{key}_up", accept_multiple_files=True)
     if files:
         return load_uploaded_images(files)
-    if choice != "不使用" and (SAMPLES_DIR / choice).exists():
-        return [prepare_image(Image.open(SAMPLES_DIR / choice).convert("RGB"))]
     return []
 
 
@@ -156,7 +142,7 @@ def main() -> None:
             "上传含表格的图片/截图，还原为可编辑 Excel。支持复杂表格、合并单元格。",
             emoji="📊",
         )
-        images = scene_images("t1", TAB1_SAMPLES, SUPPORTED_IMAGE_TYPES)
+        images = scene_images("t1", SUPPORTED_IMAGE_TYPES)
         if images and st.button("🚀 开始识别", key="t1_go", type="primary"):
             progress = st.progress(0, text="识别中...")
             md_all = []
@@ -185,7 +171,7 @@ def main() -> None:
             "上传文档/扫描件/PDF，输出保留结构与公式的 Markdown（公式为 LaTeX）。单次最多 50 页。",
             emoji="📄",
         )
-        images = scene_images("t2", TAB2_SAMPLES, SUPPORTED_IMAGE_TYPES + ["pdf"])
+        images = scene_images("t2", SUPPORTED_IMAGE_TYPES + ["pdf"])
         if images and st.button("🚀 开始转换", key="t2_go", type="primary"):
             progress = st.progress(0, text="转换中...")
             md_all = []
@@ -214,7 +200,7 @@ def main() -> None:
             "🔧 要抽取的字段（逗号分隔）",
             "商户名称,开票日期,发票号码,价税合计",
         )
-        images = scene_images("t3", TAB3_SAMPLES, SUPPORTED_IMAGE_TYPES)
+        images = scene_images("t3", SUPPORTED_IMAGE_TYPES)
         if images and st.button("🚀 抽取并汇总", key="t3_go", type="primary"):
             progress = st.progress(0, text="抽取中...")
             fields = [f.strip() for f in fields_text.replace("，", ",").split(",") if f.strip()]
@@ -254,7 +240,7 @@ def main() -> None:
         question = ""
         if "对文档" in mode:
             question = st.text_input("💬 你的问题", "这张图里金额是多少？")
-        images = scene_images("t4", TAB4_SAMPLES, SUPPORTED_IMAGE_TYPES)
+        images = scene_images("t4", SUPPORTED_IMAGE_TYPES)
         if images and st.button("🚀 识别 / 提问", key="t4_go", type="primary"):
             for i, img in enumerate(images):
                 with st.spinner(f"处理第 {i + 1}/{len(images)} 张..."):
