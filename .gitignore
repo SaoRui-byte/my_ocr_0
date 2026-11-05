@@ -1,0 +1,41 @@
+# ===== 模型 & 数据（大文件，走 modelscope 下载）=====
+models/
+samples/
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+*.pth
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# ===== 虚拟环境 =====
+.venv/
+venv/
+env/
+*.conda
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+
+# ===== 系统 & 临时 =====
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
+out_*.md
+bench_result.txt
+bench_xpu.log
+
+# ===== Jupyter =====
+.ipynb_checkpoints/
