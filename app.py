@@ -130,49 +130,129 @@ def main() -> None:
 
     draw_sidebar()
 
-    # ---- 四个场景 Tab ----
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["📊 图片转 Excel", "📄 文档转 Markdown", "🧾 发票整理", "🔍 识字问答"]
-    )
+    # ---- 两大模块 Tab ----
+    tab_image, tab_doc = st.tabs(["🖼️ 图片 OCR", "📄 文档解析"])
 
-    # ---- Tab 1: 表格还原 ----
-    with tab1:
-        section_header(
-            "图片转 Excel",
-            "上传含表格的图片/截图，还原为可编辑 Excel。支持复杂表格、合并单元格。",
-            emoji="📊",
+    # ============================================================
+    # Tab 1: 图片 OCR — 内含三个子功能
+    # ============================================================
+    with tab_image:
+        task = st.radio(
+            "选择任务",
+            ["📊 图片转 Excel", "🧾 发票整理", "🔍 识字问答"],
+            horizontal=True,
+            key="img_task",
         )
-        images = scene_images("t1", SUPPORTED_IMAGE_TYPES)
-        if images and st.button("🚀 开始识别", key="t1_go", type="primary"):
-            progress = st.progress(0, text="识别中...")
-            md_all = []
-            for i, img in enumerate(images):
-                with st.spinner(f"识别第 {i + 1}/{len(images)} 张..."):
-                    md_all.append(service.parse(img))
-                progress.progress((i + 1) / len(images))
-            md_text = "\n\n".join(md_all)
-            source_preview(md_text, key="t1")
-            xlsx = markdown_tables_to_excel(md_text)
-            if xlsx:
-                st.download_button(
-                    "⬇️ 下载 Excel (.xlsx)",
-                    xlsx,
-                    file_name="tables.xlsx",
-                    mime=XLSX_MIME,
-                    type="primary",
-                )
-            else:
-                st.info("未在结果中检测到表格，可试试文档转 Markdown 场景。")
+        st.divider()
 
-    # ---- Tab 2: 文档转 Markdown ----
-    with tab2:
+        # ---- 图片转 Excel ----
+        if "图片转 Excel" in task:
+            section_header(
+                "图片转 Excel",
+                "上传含表格的图片/截图，还原为可编辑 Excel。支持复杂表格、合并单元格。",
+                emoji="📊",
+            )
+            images = scene_images("img_table", SUPPORTED_IMAGE_TYPES)
+            if images and st.button("🚀 开始识别", key="img_table_go", type="primary"):
+                progress = st.progress(0, text="识别中...")
+                md_all = []
+                for i, img in enumerate(images):
+                    with st.spinner(f"识别第 {i + 1}/{len(images)} 张..."):
+                        md_all.append(service.parse(img))
+                    progress.progress((i + 1) / len(images))
+                md_text = "\n\n".join(md_all)
+                source_preview(md_text, key="img_table")
+                xlsx = markdown_tables_to_excel(md_text)
+                if xlsx:
+                    st.download_button(
+                        "⬇️ 下载 Excel (.xlsx)",
+                        xlsx,
+                        file_name="tables.xlsx",
+                        mime=XLSX_MIME,
+                        type="primary",
+                    )
+                else:
+                    st.info("未在结果中检测到表格，可试试文档解析场景。")
+
+        # ---- 发票整理 ----
+        elif "发票整理" in task:
+            section_header(
+                "发票整理",
+                "上传发票/收据（可多张），抽取关键字段并汇总为 Excel。",
+                emoji="🧾",
+            )
+            fields_text = st.text_input(
+                "🔧 要抽取的字段（逗号分隔）",
+                "商户名称,开票日期,发票号码,价税合计",
+            )
+            images = scene_images("img_kie", SUPPORTED_IMAGE_TYPES)
+            if images and st.button("🚀 抽取并汇总", key="img_kie_go", type="primary"):
+                progress = st.progress(0, text="抽取中...")
+                fields = [f.strip() for f in fields_text.replace("，", ",").split(",") if f.strip()]
+                records = []
+                for i, img in enumerate(images):
+                    with st.spinner(f"抽取第 {i + 1}/{len(images)} 张..."):
+                        raw = service.kie(img, fields)
+                    try:
+                        records.append(extract_json(raw))
+                    except ValueError:
+                        st.warning(f"部分结果解析失败，原始输出：\n{raw}")
+                    progress.progress((i + 1) / len(images))
+                if records:
+                    st.markdown("#### 📋 抽取结果")
+                    st.json(records)
+                    st.download_button(
+                        "⬇️ 下载汇总 Excel (.xlsx)",
+                        kie_to_excel(records),
+                        file_name="invoices.xlsx",
+                        mime=XLSX_MIME,
+                        type="primary",
+                    )
+
+        # ---- 识字问答 ----
+        elif "识字问答" in task:
+            section_header(
+                "识字问答",
+                "截图/手写/书法识别，或直接对文档内容提问。",
+                emoji="🔍",
+            )
+            mode = st.radio(
+                "模式",
+                ["📝 提取全文（OCR）", "❓ 对文档提问（VQA）"],
+                horizontal=True,
+                key="img_vqa_mode",
+            )
+            question = ""
+            if "对文档" in mode:
+                question = st.text_input("💬 你的问题", "这张图里金额是多少？")
+            images = scene_images("img_vqa", SUPPORTED_IMAGE_TYPES)
+            if images and st.button("🚀 识别 / 提问", key="img_vqa_go", type="primary"):
+                for i, img in enumerate(images):
+                    with st.spinner(f"处理第 {i + 1}/{len(images)} 张..."):
+                        answer = (
+                            service.parse(img) if "提取全文" in mode else service.vqa(img, question)
+                        )
+                    st.markdown(f"#### 📌 第 {i + 1} 张结果")
+                    st.write(answer)
+                    st.download_button(
+                        "⬇️ 下载文本",
+                        answer.encode("utf-8"),
+                        file_name=f"answer_{i + 1}.txt",
+                        mime="text/plain",
+                        key=f"img_vqa_dl{i}",
+                    )
+
+    # ============================================================
+    # Tab 2: 文档解析
+    # ============================================================
+    with tab_doc:
         section_header(
             "文档转 Markdown",
             "上传文档/扫描件/PDF，输出保留结构与公式的 Markdown（公式为 LaTeX）。单次最多 50 页。",
             emoji="📄",
         )
-        images = scene_images("t2", SUPPORTED_IMAGE_TYPES + ["pdf"])
-        if images and st.button("🚀 开始转换", key="t2_go", type="primary"):
+        images = scene_images("doc", SUPPORTED_IMAGE_TYPES + ["pdf"])
+        if images and st.button("🚀 开始转换", key="doc_go", type="primary"):
             progress = st.progress(0, text="转换中...")
             md_all = []
             for i, img in enumerate(images):
@@ -180,7 +260,7 @@ def main() -> None:
                     md_all.append(service.parse(img))
                 progress.progress((i + 1) / len(images))
             md_text = "\n\n---\n\n".join(md_all)
-            source_preview(md_text, key="t2")
+            source_preview(md_text, key="doc")
             st.download_button(
                 "⬇️ 下载 Markdown (.md)",
                 md_text.encode("utf-8"),
@@ -188,74 +268,6 @@ def main() -> None:
                 mime="text/markdown",
                 type="primary",
             )
-
-    # ---- Tab 3: 发票整理 ----
-    with tab3:
-        section_header(
-            "发票整理",
-            "上传发票/收据（可多张），抽取关键字段并汇总为 Excel。",
-            emoji="🧾",
-        )
-        fields_text = st.text_input(
-            "🔧 要抽取的字段（逗号分隔）",
-            "商户名称,开票日期,发票号码,价税合计",
-        )
-        images = scene_images("t3", SUPPORTED_IMAGE_TYPES)
-        if images and st.button("🚀 抽取并汇总", key="t3_go", type="primary"):
-            progress = st.progress(0, text="抽取中...")
-            fields = [f.strip() for f in fields_text.replace("，", ",").split(",") if f.strip()]
-            records = []
-            for i, img in enumerate(images):
-                with st.spinner(f"抽取第 {i + 1}/{len(images)} 张..."):
-                    raw = service.kie(img, fields)
-                try:
-                    records.append(extract_json(raw))
-                except ValueError:
-                    st.warning(f"部分结果解析失败，原始输出：\n{raw}")
-                progress.progress((i + 1) / len(images))
-            if records:
-                st.markdown("#### 📋 抽取结果")
-                st.json(records)
-                st.download_button(
-                    "⬇️ 下载汇总 Excel (.xlsx)",
-                    kie_to_excel(records),
-                    file_name="invoices.xlsx",
-                    mime=XLSX_MIME,
-                    type="primary",
-                )
-
-    # ---- Tab 4: 识字问答 ----
-    with tab4:
-        section_header(
-            "识字问答",
-            "截图/手写/书法识别，或直接对文档内容提问。",
-            emoji="🔍",
-        )
-        mode = st.radio(
-            "模式",
-            ["📝 提取全文（OCR）", "❓ 对文档提问（VQA）"],
-            horizontal=True,
-            key="t4_mode",
-        )
-        question = ""
-        if "对文档" in mode:
-            question = st.text_input("💬 你的问题", "这张图里金额是多少？")
-        images = scene_images("t4", SUPPORTED_IMAGE_TYPES)
-        if images and st.button("🚀 识别 / 提问", key="t4_go", type="primary"):
-            for i, img in enumerate(images):
-                with st.spinner(f"处理第 {i + 1}/{len(images)} 张..."):
-                    answer = (
-                        service.parse(img) if "提取全文" in mode else service.vqa(img, question)
-                    )
-                st.markdown(f"#### 📌 第 {i + 1} 张结果")
-                st.write(answer)
-                st.download_button(
-                    "⬇️ 下载文本",
-                    answer.encode("utf-8"),
-                    file_name=f"answer_{i + 1}.txt",
-                    mime="text/plain",
-                    key=f"t4_dl{i}",
-                )
 
 
 if __name__ == "__main__":
