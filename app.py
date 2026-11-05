@@ -1,4 +1,4 @@
-"""my_ocr_0 — 基于 Xiaomi-OCR-0 的本地 OCR 工具（表格转 Excel / 文档转 Markdown / 发票整理 / 识字问答）。"""
+"""my_ocr_0 — 基于 Xiaomi-OCR-0 的本地 OCR 工具。"""
 import streamlit as st
 from PIL import Image
 
@@ -9,6 +9,7 @@ from core.preprocess import pdf_to_images, prepare_image
 st.set_page_config(page_title="my_ocr_0 — 本地 OCR", page_icon="📄", layout="wide")
 
 SUPPORTED_IMAGE_TYPES = ["png", "jpg", "jpeg", "webp", "bmp"]
+ALL_INPUT_TYPES = SUPPORTED_IMAGE_TYPES + ["pdf"]
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
@@ -18,7 +19,7 @@ def load_service() -> OCRService:
 
 
 def draw_sidebar() -> None:
-    """侧边栏：项目介绍 + 设备信息。"""
+    """侧边栏：项目介绍。"""
     with st.sidebar:
         st.markdown(
             """
@@ -27,7 +28,7 @@ def draw_sidebar() -> None:
                         color: white; margin-bottom: 16px;">
                 <div style="font-size: 18px; font-weight: 700;">📄 my_ocr_0</div>
                 <div style="font-size: 12px; opacity: 0.85; margin-top: 4px;">
-                    本地 OCR · 表格 · 发票 · 问答
+                    本地 OCR · 零上传 · 离线可用
                 </div>
             </div>
             """,
@@ -36,12 +37,9 @@ def draw_sidebar() -> None:
         st.markdown("### 关于")
         st.caption(
             "基于开源模型 [Xiaomi-OCR-0](https://github.com/xiaomi-research/Xiaomi-OCR-0)（0.8B）本地推理。"
-            "图片不上传、离线可用。"
         )
         st.markdown("### 支持格式")
         st.code("图片: PNG / JPG / WEBP / BMP\n文档: PDF")
-        st.markdown("### 快捷键")
-        st.caption("上传后点击「开始识别」即可，无页数限制。")
 
 
 def load_uploaded_images(uploaded_files) -> list[Image.Image]:
@@ -54,17 +52,20 @@ def load_uploaded_images(uploaded_files) -> list[Image.Image]:
     return images
 
 
-def scene_images(key: str, uploader_types: list[str]) -> list[Image.Image]:
-    """统一取图入口：文件上传（支持多图 / PDF）。"""
-    files = st.file_uploader("📁 上传图片或 PDF", type=uploader_types, key=f"{key}_up", accept_multiple_files=True)
-    if files:
-        return load_uploaded_images(files)
-    return []
+def upload_zone(key: str, accept_pdf: bool = True) -> list[Image.Image]:
+    """统一上传区，返回图片列表（PDF 会自动拆页）。"""
+    types = ALL_INPUT_TYPES if accept_pdf else SUPPORTED_IMAGE_TYPES
+    files = st.file_uploader(
+        "📁 上传文件" + ("（图片或 PDF）" if accept_pdf else "（仅图片）"),
+        type=types,
+        key=f"{key}_up",
+        accept_multiple_files=True,
+    )
+    return load_uploaded_images(files) if files else []
 
 
 def source_preview(md_text: str, key: str = "split") -> None:
-    """左右分栏：左=Markdown 源码（可编辑），右=实时渲染预览。"""
-    st.markdown("#### 💡 结果预览")
+    """左右分栏预览 Markdown：左源码可编辑，右实时渲染。"""
     col_left, col_right = st.columns([1, 1])
     with col_left:
         st.markdown("**📝 Markdown 源码**")
@@ -74,33 +75,162 @@ def source_preview(md_text: str, key: str = "split") -> None:
         st.markdown(edited)
 
 
-def section_header(title: str, subtitle: str, emoji: str = "✨") -> None:
-    """统一的场景标题样式。"""
-    st.markdown(
-        f"""
-        <div style="padding: 16px 20px; border-radius: 12px;
-                    background: #f8fafc; border-left: 4px solid #667eea;
-                    margin-bottom: 20px;">
-            <div style="font-size: 18px; font-weight: 600; color: #1e293b;">
-                {emoji} {title}
-            </div>
-            <div style="font-size: 13px; color: #64748b; margin-top: 6px;">
-                {subtitle}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+def run_batch(images: list[Image.Image], service, mode: str = "parse") -> list[str]:
+    """批量推理 + 进度条。mode: parse / kie / vqa。"""
+    progress = st.progress(0, text="处理中...")
+    results = []
+    for i, img in enumerate(images):
+        with st.spinner(f"第 {i + 1}/{len(images)} 张..."):
+            if mode == "parse":
+                results.append(service.parse(img))
+            elif mode == "kie":
+                fields = st.session_state.get(f"kie_fields", None)
+                results.append(service.kie(img, fields))
+            elif mode == "vqa":
+                question = st.session_state.get(f"vqa_question", "")
+                results.append(service.vqa(img, question))
+        progress.progress((i + 1) / len(images))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 各场景渲染函数
+# ---------------------------------------------------------------------------
+
+def tab_doc_to_md(service: OCRService) -> None:
+    """📄 文档转写：图片/PDF → Markdown（文本+表格+公式）。"""
+    st.info("把截图、扫描件、PDF 转成可编辑的 Markdown，保留公式（LaTeX）和表格结构。")
+    images = upload_zone("doc_to_md")
+    if images and st.button("🚀 开始转写", key="doc_go", type="primary"):
+        results = run_batch(images, service, mode="parse")
+        md_text = "\n\n---\n\n".join(results)
+        source_preview(md_text, key="doc")
+        st.download_button(
+            "⬇️ 下载 Markdown (.md)",
+            md_text.encode("utf-8"),
+            file_name="document.md",
+            mime="text/markdown",
+            type="primary",
+        )
+
+
+def tab_table_to_xlsx(service: OCRService) -> None:
+    """📊 表格提取：图片/PDF → Excel。"""
+    st.info("把图片里的表格还原为可编辑 Excel，支持复杂表格、合并单元格。")
+    images = upload_zone("table")
+    if images and st.button("🚀 开始识别", key="table_go", type="primary"):
+        results = run_batch(images, service, mode="parse")
+        md_text = "\n\n".join(results)
+        source_preview(md_text, key="table")
+        xlsx = markdown_tables_to_excel(md_text)
+        if xlsx:
+            st.download_button(
+                "⬇️ 下载 Excel (.xlsx)",
+                xlsx,
+                file_name="tables.xlsx",
+                mime=XLSX_MIME,
+                type="primary",
+            )
+        else:
+            st.warning("未检测到表格内容，可试试「文档转写」场景。")
+
+
+def tab_kie(service: OCRService) -> None:
+    """🧾 信息抽取：发票/单据 → 结构化 Excel。"""
+    st.info("上传发票或收据（可多张），自定义要抽取的字段，自动汇总为 Excel。")
+    st.text_input(
+        "🔧 要抽取的字段（逗号分隔）",
+        "商户名称,开票日期,发票号码,价税合计",
+        key="kie_fields_input",
     )
+    # 同步到 session 供 run_batch 使用
+    st.session_state["kie_fields"] = [
+        f.strip() for f in st.session_state.get("kie_fields_input", "").replace("，", ",").split(",") if f.strip()
+    ]
+    images = upload_zone("kie", accept_pdf=False)
+    if images and st.button("🚀 抽取并汇总", key="kie_go", type="primary"):
+        progress = st.progress(0, text="抽取中...")
+        records = []
+        fields = st.session_state["kie_fields"]
+        for i, img in enumerate(images):
+            with st.spinner(f"第 {i + 1}/{len(images)} 张..."):
+                raw = service.kie(img, fields)
+            try:
+                records.append(extract_json(raw))
+            except ValueError:
+                st.warning(f"第 {i + 1} 张解析失败，原始输出：\n{raw}")
+            progress.progress((i + 1) / len(images))
+        if records:
+            st.markdown("#### 📋 抽取结果")
+            st.json(records)
+            st.download_button(
+                "⬇️ 下载汇总 Excel (.xlsx)",
+                kie_to_excel(records),
+                file_name="invoices.xlsx",
+                mime=XLSX_MIME,
+                type="primary",
+            )
+
+
+def tab_vqa(service: OCRService) -> None:
+    """🔍 识字 & 问答：提取全文 或 对图片提问。"""
+    sub = st.radio(
+        "模式",
+        ["📝 纯文字识别", "❓ 对图片提问"],
+        horizontal=True,
+        key="vqa_sub",
+    )
+    st.divider()
+
+    if "纯文字" in sub:
+        st.info("从图片中提取全部文字内容。")
+        images = upload_zone("ocr", accept_pdf=False)
+        if images and st.button("🚀 开始识别", key="ocr_go", type="primary"):
+            progress = st.progress(0, text="识别中...")
+            for i, img in enumerate(images):
+                with st.spinner(f"第 {i + 1}/{len(images)} 张..."):
+                    text = service.parse(img)
+                progress.progress((i + 1) / len(images))
+                st.markdown(f"#### 📌 第 {i + 1} 张")
+                st.write(text)
+                st.download_button(
+                    "⬇️ 下载文本",
+                    text.encode("utf-8"),
+                    file_name=f"ocr_{i + 1}.md",
+                    mime="text/markdown",
+                    key=f"ocr_dl_{i}",
+                )
+
+    else:
+        st.session_state["vqa_question"] = st.text_input(
+            "💬 你的问题",
+            "这张图里金额是多少？",
+        )
+        st.info("针对图片内容直接提问，模型会给出简洁回答。")
+        images = upload_zone("vqa", accept_pdf=False)
+        if images and st.button("🚀 开始提问", key="vqa_go", type="primary"):
+            for i, img in enumerate(images):
+                with st.spinner(f"思考中..."):
+                    answer = service.vqa(img, st.session_state["vqa_question"])
+                st.markdown(f"#### 📌 第 {i + 1} 张回答")
+                st.write(answer)
+                st.download_button(
+                    "⬇️ 下载回答",
+                    answer.encode("utf-8"),
+                    file_name=f"answer_{i + 1}.txt",
+                    mime="text/plain",
+                    key=f"vqa_dl_{i}",
+                )
 
 
 def main() -> None:
-    # ---- 顶部 Hero ----
+    # ---- Hero ----
     st.markdown(
         """
         <div style="text-align: center; padding: 24px 0 16px 0;">
             <h1 style="margin: 0 0 8px 0; font-size: 32px;">📄 my_ocr_0</h1>
             <p style="margin: 0; color: #64748b; font-size: 15px;">
-                本地 OCR 识别工具 — 表格转 Excel · 文档转 Markdown · 发票整理 · 识字问答
+                基于 Xiaomi-OCR-0（0.8B）的本地 OCR 工具
             </p>
         </div>
         """,
@@ -112,9 +242,10 @@ def main() -> None:
         service = load_service()
     except Exception as exc:
         st.error(f"❌ 模型加载失败：{exc}")
-        st.info("👉 请先下载模型：\n"
-                "```python\nfrom modelscope import snapshot_download\n"
-                "snapshot_download('xiaomi-research/Xiaomi-OCR-0', local_dir='models/Xiaomi-OCR-0')\n```")
+        st.code(
+            "from modelscope import snapshot_download\n"
+            "snapshot_download('xiaomi-research/Xiaomi-OCR-0', local_dir='models/Xiaomi-OCR-0')"
+        )
         draw_sidebar()
         return
 
@@ -130,144 +261,24 @@ def main() -> None:
 
     draw_sidebar()
 
-    # ---- 两大模块 Tab ----
-    tab_image, tab_doc = st.tabs(["🖼️ 图片 OCR", "📄 文档解析"])
+    # ---- 按用户意图分 Tab ----
+    tabs = st.tabs(
+        [
+            "📄 文档转写",
+            "📊 表格提取",
+            "🧾 信息抽取",
+            "🔍 识字问答",
+        ]
+    )
 
-    # ============================================================
-    # Tab 1: 图片 OCR — 内含三个子功能
-    # ============================================================
-    with tab_image:
-        task = st.radio(
-            "选择任务",
-            ["📊 图片转 Excel", "🧾 发票整理", "🔍 识字问答"],
-            horizontal=True,
-            key="img_task",
-        )
-        st.divider()
-
-        # ---- 图片转 Excel ----
-        if "图片转 Excel" in task:
-            section_header(
-                "图片转 Excel",
-                "上传含表格的图片/截图，还原为可编辑 Excel。支持复杂表格、合并单元格。",
-                emoji="📊",
-            )
-            images = scene_images("img_table", SUPPORTED_IMAGE_TYPES)
-            if images and st.button("🚀 开始识别", key="img_table_go", type="primary"):
-                progress = st.progress(0, text="识别中...")
-                md_all = []
-                for i, img in enumerate(images):
-                    with st.spinner(f"识别第 {i + 1}/{len(images)} 张..."):
-                        md_all.append(service.parse(img))
-                    progress.progress((i + 1) / len(images))
-                md_text = "\n\n".join(md_all)
-                source_preview(md_text, key="img_table")
-                xlsx = markdown_tables_to_excel(md_text)
-                if xlsx:
-                    st.download_button(
-                        "⬇️ 下载 Excel (.xlsx)",
-                        xlsx,
-                        file_name="tables.xlsx",
-                        mime=XLSX_MIME,
-                        type="primary",
-                    )
-                else:
-                    st.info("未在结果中检测到表格，可试试文档解析场景。")
-
-        # ---- 发票整理 ----
-        elif "发票整理" in task:
-            section_header(
-                "发票整理",
-                "上传发票/收据（可多张），抽取关键字段并汇总为 Excel。",
-                emoji="🧾",
-            )
-            fields_text = st.text_input(
-                "🔧 要抽取的字段（逗号分隔）",
-                "商户名称,开票日期,发票号码,价税合计",
-            )
-            images = scene_images("img_kie", SUPPORTED_IMAGE_TYPES)
-            if images and st.button("🚀 抽取并汇总", key="img_kie_go", type="primary"):
-                progress = st.progress(0, text="抽取中...")
-                fields = [f.strip() for f in fields_text.replace("，", ",").split(",") if f.strip()]
-                records = []
-                for i, img in enumerate(images):
-                    with st.spinner(f"抽取第 {i + 1}/{len(images)} 张..."):
-                        raw = service.kie(img, fields)
-                    try:
-                        records.append(extract_json(raw))
-                    except ValueError:
-                        st.warning(f"部分结果解析失败，原始输出：\n{raw}")
-                    progress.progress((i + 1) / len(images))
-                if records:
-                    st.markdown("#### 📋 抽取结果")
-                    st.json(records)
-                    st.download_button(
-                        "⬇️ 下载汇总 Excel (.xlsx)",
-                        kie_to_excel(records),
-                        file_name="invoices.xlsx",
-                        mime=XLSX_MIME,
-                        type="primary",
-                    )
-
-        # ---- 识字问答 ----
-        elif "识字问答" in task:
-            section_header(
-                "识字问答",
-                "截图/手写/书法识别，或直接对文档内容提问。",
-                emoji="🔍",
-            )
-            mode = st.radio(
-                "模式",
-                ["📝 提取全文（OCR）", "❓ 对文档提问（VQA）"],
-                horizontal=True,
-                key="img_vqa_mode",
-            )
-            question = ""
-            if "对文档" in mode:
-                question = st.text_input("💬 你的问题", "这张图里金额是多少？")
-            images = scene_images("img_vqa", SUPPORTED_IMAGE_TYPES)
-            if images and st.button("🚀 识别 / 提问", key="img_vqa_go", type="primary"):
-                for i, img in enumerate(images):
-                    with st.spinner(f"处理第 {i + 1}/{len(images)} 张..."):
-                        answer = (
-                            service.parse(img) if "提取全文" in mode else service.vqa(img, question)
-                        )
-                    st.markdown(f"#### 📌 第 {i + 1} 张结果")
-                    st.write(answer)
-                    st.download_button(
-                        "⬇️ 下载文本",
-                        answer.encode("utf-8"),
-                        file_name=f"answer_{i + 1}.txt",
-                        mime="text/plain",
-                        key=f"img_vqa_dl{i}",
-                    )
-
-    # ============================================================
-    # Tab 2: 文档解析
-    # ============================================================
-    with tab_doc:
-        section_header(
-            "文档转 Markdown",
-            "上传文档/扫描件/PDF，输出保留结构与公式的 Markdown（公式为 LaTeX）。单次最多 50 页。",
-            emoji="📄",
-        )
-        images = scene_images("doc", SUPPORTED_IMAGE_TYPES + ["pdf"])
-        if images and st.button("🚀 开始转换", key="doc_go", type="primary"):
-            progress = st.progress(0, text="转换中...")
-            md_all = []
-            for i, img in enumerate(images):
-                with st.spinner(f"转换第 {i + 1}/{len(images)} 张..."):
-                    md_all.append(service.parse(img))
-                progress.progress((i + 1) / len(images))
-            md_text = "\n\n---\n\n".join(md_all)
-            source_preview(md_text, key="doc")
-            st.download_button(
-                "⬇️ 下载 Markdown (.md)",
-                md_text.encode("utf-8"),
-                file_name="document.md",
-                mime="text/markdown",
-                type="primary",
-            )
+    with tabs[0]:
+        tab_doc_to_md(service)
+    with tabs[1]:
+        tab_table_to_xlsx(service)
+    with tabs[2]:
+        tab_kie(service)
+    with tabs[3]:
+        tab_vqa(service)
 
 
 if __name__ == "__main__":
