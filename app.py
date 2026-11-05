@@ -130,10 +130,11 @@ def page_header(title: str, subtitle: str, emoji: str) -> None:
 # ---------------------------------------------------------------------------
 
 def custom_download(content: bytes, default_name: str, mime: str, key: str) -> None:
-    """并排显示文件名输入框和下载按钮。"""
+    """并排显示文件名输入框和下载按钮（标签外置以保证同行对齐）。"""
+    st.markdown("📝 文件名")
     col_name, col_btn = st.columns([3, 2])
     with col_name:
-        base = st.text_input("📝 文件名", default_name, key=f"{key}_name").strip() or default_name
+        base = st.text_input("文件名", default_name, key=f"{key}_name", label_visibility="collapsed").strip() or default_name
     with col_btn:
         if not base.lower().endswith((".md", ".txt", ".xlsx", ".json")):
             base += "." + mime.split("/")[-1].replace("openxmlformats-officedocument.", "").replace("spreadsheetml.", "")
