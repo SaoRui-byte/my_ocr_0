@@ -106,7 +106,8 @@ def source_preview(md_text: str, key: str = "split") -> str:
         edited = st.text_area("源码", value=md_text, height=480, key=f"{key}_src")
     with col_right:
         st.markdown("**👀 实时渲染**")
-        st.markdown(edited)
+        # 表格被 postprocess 转成 HTML <table>，需开启 HTML 才能正常渲染
+        st.markdown(edited, unsafe_allow_html=True)
     return edited
 
 
