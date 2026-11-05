@@ -126,6 +126,28 @@ def page_header(title: str, subtitle: str, emoji: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 辅助：带自定义文件名的下载
+# ---------------------------------------------------------------------------
+
+def custom_download(content: bytes, default_name: str, mime: str, key: str) -> None:
+    """并排显示文件名输入框和下载按钮。"""
+    col_name, col_btn = st.columns([3, 2])
+    with col_name:
+        base = st.text_input("📝 文件名", default_name, key=f"{key}_name").strip() or default_name
+    with col_btn:
+        if not base.lower().endswith((".md", ".txt", ".xlsx", ".json")):
+            base += "." + mime.split("/")[-1].replace("openxmlformats-officedocument.", "").replace("spreadsheetml.", "")
+        st.download_button(
+            "⬇️ 下载",
+            content,
+            file_name=base,
+            mime=mime,
+            type="primary",
+            key=f"{key}_dl",
+        )
+
+
+# ---------------------------------------------------------------------------
 # 各场景渲染
 # ---------------------------------------------------------------------------
 
@@ -141,13 +163,7 @@ def render_doc_to_md(service: OCRService) -> None:
             progress.progress((i + 1) / len(images))
         md_text = "\n\n---\n\n".join(md_all)
         source_preview(md_text, key="doc")
-        st.download_button(
-            "⬇️ 下载 Markdown (.md)",
-            md_text.encode("utf-8"),
-            file_name="document.md",
-            mime="text/markdown",
-            type="primary",
-        )
+        custom_download(md_text.encode("utf-8"), "document.md", "text/markdown", key="doc")
 
 
 def render_table_to_xlsx(service: OCRService) -> None:
@@ -164,13 +180,7 @@ def render_table_to_xlsx(service: OCRService) -> None:
         source_preview(md_text, key="table")
         xlsx = markdown_tables_to_excel(md_text)
         if xlsx:
-            st.download_button(
-                "⬇️ 下载 Excel (.xlsx)",
-                xlsx,
-                file_name="tables.xlsx",
-                mime=XLSX_MIME,
-                type="primary",
-            )
+            custom_download(xlsx, "tables.xlsx", XLSX_MIME, key="table")
         else:
             st.warning("未检测到表格内容。")
 
@@ -198,13 +208,7 @@ def render_kie(service: OCRService) -> None:
         if records:
             st.markdown("#### 📋 抽取结果")
             st.json(records)
-            st.download_button(
-                "⬇️ 下载汇总 Excel (.xlsx)",
-                kie_to_excel(records),
-                file_name="invoices.xlsx",
-                mime=XLSX_MIME,
-                type="primary",
-            )
+            custom_download(kie_to_excel(records), "invoices.xlsx", XLSX_MIME, key="kie")
 
 
 def render_vqa(service: OCRService) -> None:
@@ -222,13 +226,7 @@ def render_vqa(service: OCRService) -> None:
                 progress.progress((i + 1) / len(images))
                 st.markdown(f"#### 📌 第 {i + 1} 张")
                 st.write(text)
-                st.download_button(
-                    "⬇️ 下载 Markdown",
-                    text.encode("utf-8"),
-                    file_name=f"ocr_{i + 1}.md",
-                    mime="text/markdown",
-                    key=f"ocr_dl_{i}",
-                )
+                custom_download(text.encode("utf-8"), f"ocr_{i + 1}.md", "text/markdown", key=f"ocr_{i}")
     else:
         question = st.text_input("💬 你的问题", "这张图里金额是多少？")
         images = upload_zone("vqa", accept_pdf=False)
@@ -238,13 +236,7 @@ def render_vqa(service: OCRService) -> None:
                     answer = service.vqa(img, question)
                 st.markdown(f"#### 📌 第 {i + 1} 张回答")
                 st.write(answer)
-                st.download_button(
-                    "⬇️ 下载回答",
-                    answer.encode("utf-8"),
-                    file_name=f"answer_{i + 1}.txt",
-                    mime="text/plain",
-                    key=f"vqa_dl_{i}",
-                )
+                custom_download(answer.encode("utf-8"), f"answer_{i + 1}.txt", "text/plain", key=f"vqa_{i}")
 
 
 # key → 渲染函数的映射
@@ -271,6 +263,18 @@ def main() -> None:
 
     selected = draw_sidebar(service)
     RENDER[selected](service)
+
+    # 页脚
+    st.divider()
+    st.markdown(
+        """
+        <div style="text-align: center; color: #94a3b8; font-size: 13px; padding: 12px 0;">
+            © 2026 <a href="https://github.com/SaoRui-Byte" target="_blank" style="color: #667eea; text-decoration: none;">SaoRui-Byte</a> · 
+            Built with Xiaomi-OCR-0
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 if __name__ == "__main__":
