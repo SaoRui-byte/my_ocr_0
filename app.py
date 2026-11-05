@@ -97,7 +97,8 @@ def upload_zone(key: str, accept_pdf: bool = True) -> list[Image.Image]:
     return load_uploaded_images(files) if files else []
 
 
-def source_preview(md_text: str, key: str = "split") -> None:
+def source_preview(md_text: str, key: str = "split") -> str:
+    """左右分栏预览 Markdown，返回编辑后的文本。"""
     col_left, col_right = st.columns([1, 1])
     with col_left:
         st.markdown("**📝 Markdown 源码**")
@@ -105,6 +106,7 @@ def source_preview(md_text: str, key: str = "split") -> None:
     with col_right:
         st.markdown("**👀 实时渲染**")
         st.markdown(edited)
+    return edited
 
 
 def page_header(title: str, subtitle: str, emoji: str) -> None:
@@ -162,9 +164,11 @@ def render_doc_to_md(service: OCRService) -> None:
             with st.spinner(f"第 {i + 1}/{len(images)} 张..."):
                 md_all.append(service.parse(img))
             progress.progress((i + 1) / len(images))
-        md_text = "\n\n---\n\n".join(md_all)
-        source_preview(md_text, key="doc")
-        custom_download(md_text.encode("utf-8"), "document.md", "text/markdown", key="doc")
+        st.session_state["doc_result"] = "\n\n---\n\n".join(md_all)
+
+    if "doc_result" in st.session_state:
+        edited = source_preview(st.session_state["doc_result"], key="doc")
+        custom_download(edited.encode("utf-8"), "document.md", "text/markdown", key="doc")
 
 
 def render_table_to_xlsx(service: OCRService) -> None:
@@ -177,9 +181,11 @@ def render_table_to_xlsx(service: OCRService) -> None:
             with st.spinner(f"第 {i + 1}/{len(images)} 张..."):
                 md_all.append(service.parse(img))
             progress.progress((i + 1) / len(images))
-        md_text = "\n\n".join(md_all)
-        source_preview(md_text, key="table")
-        xlsx = markdown_tables_to_excel(md_text)
+        st.session_state["table_result"] = "\n\n".join(md_all)
+
+    if "table_result" in st.session_state:
+        edited = source_preview(st.session_state["table_result"], key="table")
+        xlsx = markdown_tables_to_excel(edited)
         if xlsx:
             custom_download(xlsx, "tables.xlsx", XLSX_MIME, key="table")
         else:
@@ -206,10 +212,13 @@ def render_kie(service: OCRService) -> None:
             except ValueError:
                 st.warning(f"第 {i + 1} 张解析失败：{raw[:100]}")
             progress.progress((i + 1) / len(images))
-        if records:
-            st.markdown("#### 📋 抽取结果")
-            st.json(records)
-            custom_download(kie_to_excel(records), "invoices.xlsx", XLSX_MIME, key="kie")
+        st.session_state["kie_result"] = records
+
+    if st.session_state.get("kie_result"):
+        records = st.session_state["kie_result"]
+        st.markdown("#### 📋 抽取结果")
+        st.json(records)
+        custom_download(kie_to_excel(records), "invoices.xlsx", XLSX_MIME, key="kie")
 
 
 def render_vqa(service: OCRService) -> None:
@@ -221,23 +230,31 @@ def render_vqa(service: OCRService) -> None:
         images = upload_zone("ocr", accept_pdf=False)
         if images and st.button("🚀 开始识别", type="primary"):
             progress = st.progress(0, text="识别中...")
+            texts = []
             for i, img in enumerate(images):
                 with st.spinner(f"第 {i + 1}/{len(images)} 张..."):
-                    text = service.parse(img)
+                    texts.append(service.parse(img))
                 progress.progress((i + 1) / len(images))
-                st.markdown(f"#### 📌 第 {i + 1} 张")
-                st.write(text)
-                custom_download(text.encode("utf-8"), f"ocr_{i + 1}.md", "text/markdown", key=f"ocr_{i}")
+            st.session_state["ocr_result"] = texts
+
+        for i, text in enumerate(st.session_state.get("ocr_result", [])):
+            st.markdown(f"#### 📌 第 {i + 1} 张")
+            st.write(text)
+            custom_download(text.encode("utf-8"), f"ocr_{i + 1}.md", "text/markdown", key=f"ocr_{i}")
     else:
         question = st.text_input("💬 你的问题", "这张图里金额是多少？")
         images = upload_zone("vqa", accept_pdf=False)
         if images and st.button("🚀 开始提问", type="primary"):
-            for i, img in enumerate(images):
+            answers = []
+            for img in images:
                 with st.spinner("思考中..."):
-                    answer = service.vqa(img, question)
-                st.markdown(f"#### 📌 第 {i + 1} 张回答")
-                st.write(answer)
-                custom_download(answer.encode("utf-8"), f"answer_{i + 1}.txt", "text/plain", key=f"vqa_{i}")
+                    answers.append(service.vqa(img, question))
+            st.session_state["vqa_result"] = answers
+
+        for i, answer in enumerate(st.session_state.get("vqa_result", [])):
+            st.markdown(f"#### 📌 第 {i + 1} 张回答")
+            st.write(answer)
+            custom_download(answer.encode("utf-8"), f"answer_{i + 1}.txt", "text/plain", key=f"vqa_{i}")
 
 
 # key → 渲染函数的映射
